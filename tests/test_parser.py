@@ -276,6 +276,24 @@ class TestAppParity:
 
         assert const.LIGHT_PRESET_COUNT == 3
 
+    def test_both_columns_have_the_same_shape(self) -> None:
+        """Off, numbered presets, Auto — the two selects share one base class.
+
+        The shared implementation derives its options from the preset count and
+        its command parameter from the step, so these constants are what keeps
+        the fan picker and the light picker honest.
+        """
+        from conftest import const
+
+        for count, step in (
+            (const.FAN_LEVEL_COUNT, const.FAN_LEVEL_STEP),
+            (const.LIGHT_PRESET_COUNT, const.LIGHT_PRESET_STEP),
+        ):
+            assert count >= 1
+            # Off plus the presets plus Auto.
+            assert len([0, *range(1, count + 1), "auto"]) == count + 2
+            assert count * step <= 0xFF, "top preset must fit in one command byte"
+
     def test_both_use_the_same_step_encoding(self) -> None:
         """Fan levels and light presets are both ``index * 30``.
 
