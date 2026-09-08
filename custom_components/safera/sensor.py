@@ -172,7 +172,7 @@ SENSORS: tuple[SaferaSensorEntityDescription, ...] = (
     ),
     SaferaSensorEntityDescription(
         key="light_color_temp",
-        name="Light colour temperature",
+        name="Light color temperature",
         # Deliberately no device class: SensorDeviceClass.TEMPERATURE would let
         # Home Assistant convert this into the user's preferred temperature
         # unit, turning a colour temperature into degrees Celsius.
@@ -203,7 +203,7 @@ SENSORS: tuple[SaferaSensorEntityDescription, ...] = (
     ),
     SaferaSensorEntityDescription(
         key="pitch",
-        name="Sensor pitch",
+        name="Pitch",
         native_unit_of_measurement=DEGREE,
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -211,7 +211,7 @@ SENSORS: tuple[SaferaSensorEntityDescription, ...] = (
     ),
     SaferaSensorEntityDescription(
         key="roll",
-        name="Sensor roll",
+        name="Roll",
         native_unit_of_measurement=DEGREE,
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,

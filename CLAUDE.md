@@ -126,6 +126,19 @@ push data → sensor entities read from `coordinator.data`.
 
   Removing the switches orphaned `switch.safera_sense_fan_auto_mode` and
   `switch.safera_sense_light_auto_mode` and their history. That was a deliberate call.
+- **Entity names use American spelling and are ordered type-first**, so related entities group
+  together in the UI: `Light brightness preset 1-3` and `Light color preset 1-3`, not
+  `Light preset 1 brightness / colour` interleaved. Nothing user-visible says "colour"; code
+  comments and this file still do.
+
+  **Entity ids are generated from the name at first registration only.** Renaming an entity in code
+  changes its display name and leaves the id stale forever, so a rename means editing the registry
+  too — `config/entity_registry/update` with `new_entity_id` over the websocket API. That is what
+  was done on 2026-09-08 for nine entities; it preserves the unique id, so it is a rename rather
+  than a new entity, and history follows.
+
+  `sensor.safera_sense_co2` is deliberately left alone: "CO₂" slugifies to `co`, and `co2` is the
+  better id. Name/id agreement is a guideline, not a rule to follow off a cliff.
 - **`EntityCategory` is the only thing that groups entities on the device page**, and the four
   groups — Controls, Sensors, Configuration, Diagnostic — are hardcoded in the frontend. There is no
   way to add a fifth or name your own; sub-devices via `via_device` or a dashboard card are the only
