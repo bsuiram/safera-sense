@@ -8,13 +8,19 @@ from typing import Any
 
 from homeassistant.components.fan import FanEntity, FanEntityFeature
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util.percentage import (
     ordered_list_item_to_percentage,
     percentage_to_ordered_list_item,
 )
 
-from .const import CMD_MOTOR_SPEED_STEP, FAN_LEVEL_COUNT, FAN_LEVEL_STEP
+from .const import (
+    CMD_MOTOR_SPEED_STEP,
+    FAN_LEVEL_COUNT,
+    FAN_LEVEL_PARAM_MAX,
+    FAN_LEVEL_STEP,
+)
 from .coordinator import SaferaConfigEntry, SaferaDataUpdateCoordinator
 from .entity import SaferaEntity
 
@@ -51,6 +57,11 @@ class SaferaFan(SaferaEntity, FanEntity):
     Byte 57, the true motor speed in raw units, is still read and still exposed
     as its own sensor. It remains the honest answer to "how fast is it actually
     turning", and it is used here as a fallback for on/off.
+
+    Four levels, not five. Measured 2026-09-08: params 30/60/90/120 work and
+    produce this hood's stored preset speeds, while 150, 180 and 210 are all
+    silently ignored — the fan simply stays where it was. Boost is not reachable
+    through this command despite having a preset slot of its own.
     """
 
     _attr_name = "Fan"
@@ -110,9 +121,16 @@ class SaferaFan(SaferaEntity, FanEntity):
             level = 0
         else:
             level = percentage_to_ordered_list_item(_LEVELS, percentage)
-        await self.coordinator.async_send_command(
-            CMD_MOTOR_SPEED_STEP, level * FAN_LEVEL_STEP
-        )
+        param = level * FAN_LEVEL_STEP
+        # The hood drops an out-of-range parameter on the floor without saying
+        # so, which would leave the fan at its previous speed and the user with
+        # no indication anything failed. Refuse loudly instead.
+        if param > FAN_LEVEL_PARAM_MAX:
+            raise HomeAssistantError(
+                f"Fan level {level} is out of range; the hood accepts 0-"
+                f"{FAN_LEVEL_COUNT}"
+            )
+        await self.coordinator.async_send_command(CMD_MOTOR_SPEED_STEP, param)
 
     async def async_turn_on(
         self,

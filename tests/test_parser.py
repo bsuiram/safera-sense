@@ -99,13 +99,27 @@ class TestFanLevel:
     hood's level index sat at 0.
     """
 
-    @pytest.mark.parametrize("level", [0, 1, 2, 3, 4, 5])
+    @pytest.mark.parametrize("level", [0, 1, 2, 3, 4])
     def test_command_parameter_round_trips(self, level: int) -> None:
         from conftest import const
 
         param = level * const.FAN_LEVEL_STEP
-        assert param <= 0xFF, "a level must still fit in one command byte"
+        assert param <= const.FAN_LEVEL_PARAM_MAX
         assert parse_frame(synthetic(b56=param))["fan"] == level
+
+    def test_level_count_stops_at_four(self) -> None:
+        """Measured 2026-09-08: params above 120 are silently ignored.
+
+        150, 180 and 210 were each sent with the fan at level 1 and it stayed
+        at level 1 every time — no error, no change to byte 56. Boost has a
+        preset slot of its own at settings @91 but is not reachable this way,
+        and raising this back to 5 on the strength of that slot is exactly the
+        wrong inference that shipped in v1.1.0.
+        """
+        from conftest import const
+
+        assert const.FAN_LEVEL_COUNT == 4
+        assert const.FAN_LEVEL_PARAM_MAX == 120
 
     def test_raw_motor_speed_is_read_separately(self) -> None:
         """Byte 57 is the real speed and is independent of the level index."""

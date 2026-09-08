@@ -27,7 +27,7 @@ cooking session is currently latched.
 | entity | notes |
 |---|---|
 | Light | on/off, brightness, and colour temperature (2700–4995 K, in 9 K steps) |
-| Fan | on/off and five speed levels, using the hood's own level command so its panel and automatic mode stay in step |
+| Fan | on/off and four speed levels, using the hood's own level command so its panel and automatic mode stay in step. Boost is not reachable over BLE |
 | Fan auto / Light auto switches | the hood's own automation; see the warning below |
 | Reset grease filter | button |
 | 13 number entities | ventilation sensitivity, sensor height, the five Motor 1 ventilation presets, and brightness + colour for the three light presets |
