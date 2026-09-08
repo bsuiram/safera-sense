@@ -129,15 +129,35 @@ class TestFanLevel:
 
 
 class TestLightPreset:
-    """Byte 53 arrives in two different encodings and both must decode."""
+    """Byte 53 is the preset as ``preset * 30``, and only that.
+
+    It was believed to carry two encodings, because our own ``CMD_LIGHT_PRESET``
+    writes had been putting the bare preset index there. Measured 2026-09-08:
+    the command takes ``preset * 30``, so the literal values were our mistake
+    being echoed back, not something the hood does.
+    """
+
+    @pytest.mark.parametrize("preset", [0, 1, 2, 3])
+    def test_command_parameter_round_trips(self, preset: int) -> None:
+        from conftest import const
+
+        param = preset * const.LIGHT_PRESET_STEP
+        assert param <= const.LIGHT_PRESET_PARAM_MAX
+        assert parse_frame(synthetic(b53=param))["light"] == preset
 
     def test_hood_writes_preset_times_30(self) -> None:
         assert parse_frame(synthetic(b53=90))["light"] == 3
 
-    def test_our_command_writes_the_preset_literally(self) -> None:
-        assert parse_frame(synthetic(b53=2))["light"] == 2
+    def test_a_bare_index_is_not_a_preset(self) -> None:
+        """Regression: sending 2 instead of 60 lit the lamp at a fallback.
 
-    def test_off_is_zero_either_way(self) -> None:
+        Because ``light.py`` then set brightness and colour by hand, the lamp
+        looked right and the bug survived for weeks. A value below one step is
+        not a preset and must not decode as one.
+        """
+        assert parse_frame(synthetic(b53=2))["light"] == 0
+
+    def test_off_is_zero(self) -> None:
         assert parse_frame(synthetic(b53=0))["light"] == 0
 
     def test_raw_byte_is_preserved(self) -> None:
@@ -220,16 +240,52 @@ class TestVocIndex:
 
 
 class TestAutoFlags:
-    """Byte 60 is a bitmask: bit 0 fan auto, bit 1 light auto."""
+    """Byte 60 is a bitmask: bit 0 fan auto, bit 1 light auto.
+
+    These bits are what the fan's Auto preset mode and the light's Auto effect
+    read, now that the two auto switches are gone.
+    """
 
     @pytest.mark.parametrize(
         ("raw", "fan_auto", "light_auto"),
         [(0, False, False), (1, True, False), (2, False, True), (3, True, True)],
     )
     def test_bits(self, raw: int, fan_auto: bool, light_auto: bool) -> None:
+        from conftest import const
+
         flags = parse_frame(synthetic(b60=raw))["auto_flags"]
-        assert bool(flags & 0b01) is fan_auto
-        assert bool(flags & 0b10) is light_auto
+        assert bool(flags & const.AUTO_MASK_FAN) is fan_auto
+        assert bool(flags & const.AUTO_MASK_LIGHT) is light_auto
+
+
+class TestAppParity:
+    """The controls mirror the Safera app's own two columns.
+
+    The app shows ventilation as OFF/1/2/3/4/Auto and light as OFF/1/2/3/Auto,
+    each one selector. Boost appears in neither picker, which agrees with the
+    measurement that params above the top level are ignored.
+    """
+
+    def test_fan_has_four_levels(self) -> None:
+        from conftest import const
+
+        assert const.FAN_LEVEL_COUNT == 4
+
+    def test_light_has_three_presets(self) -> None:
+        from conftest import const
+
+        assert const.LIGHT_PRESET_COUNT == 3
+
+    def test_both_use_the_same_step_encoding(self) -> None:
+        """Fan levels and light presets are both ``index * 30``.
+
+        Missing this for the light cost weeks: CMD_LIGHT_PRESET was sent the
+        bare index, which lit the lamp at a fallback instead of the stored
+        preset.
+        """
+        from conftest import const
+
+        assert const.FAN_LEVEL_STEP == const.LIGHT_PRESET_STEP == 30
 
 
 class TestUptime:

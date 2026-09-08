@@ -26,9 +26,9 @@ cooking session is currently latched.
 
 | entity | notes |
 |---|---|
-| Light | on/off, brightness, and colour temperature (2700–4995 K, in 9 K steps) |
-| Fan | on/off and four speed levels, using the hood's own level command so its panel and automatic mode stay in step. Boost is not reachable over BLE |
-| Fan auto / Light auto switches | the hood's own automation; see the warning below |
+| Light | on/off, brightness, colour temperature (2700–4995 K, in 9 K steps), and the hood's three presets as effects |
+| Fan | four speed levels plus **Auto**, mirroring the app's ventilation column. Uses the hood's own level command so its panel and automatic mode stay in step. Boost is not reachable over BLE |
+| Light mode | a select with **Off / Preset 1 / Preset 2 / Preset 3 / Auto** — the app's light column |
 | Reset grease filter | button |
 | 13 number entities | ventilation sensitivity, sensor height, the five Motor 1 ventilation presets, and brightness + colour for the three light presets |
 | Cooker width | select |
@@ -80,8 +80,9 @@ skips both the wait and the pair call from then on.
 - **The hood also stops advertising while a central is connected**, so nothing else can even scan
   for it in the meantime.
 - **Turning the light or fan on manually disarms the hood's corresponding auto mode** — from Home
-  Assistant, from the app, or from the hood's own buttons alike. The two auto switches exist so that
-  is visible and reversible rather than a silent surprise.
+  Assistant, from the app, or from the hood's own buttons alike. Auto is a position on the fan's
+  preset modes and on the **Light mode** select, so this is visible and reversible rather than a
+  silent surprise.
 - **Arming light auto can switch the lamp on a second later.** The hood evaluates its automation
   rules the moment it is armed, and will apply a preset if it thinks cooking is in progress. This is
   normal, not a fault.
