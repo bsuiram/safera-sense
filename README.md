@@ -114,6 +114,18 @@ fan's command choice right before this did.
 adapter — the frame decoding lives in `custom_components/safera/parser.py`, which deliberately
 imports nothing from either, so it can be tested directly against recorded frames.
 
+## Upgrading
+
+**1.4.0 renamed nine entity ids** so they match their display names — the light preset numbers,
+`light_colour_temperature`, and the two preset-level sensors. Home Assistant does not regenerate an
+entity id when an integration renames an entity, so on an existing install these keep their old ids
+until you rename them yourself (Settings → Devices & services → the entity → its id). A fresh
+install gets the new ids automatically.
+
+**1.2.0 removed the two auto-mode switches.** Auto is now a position on the **Fan mode** and
+**Light mode** selects. Automations referencing `switch.safera_sense_fan_auto_mode` or
+`switch.safera_sense_light_auto_mode` need updating.
+
 ## Status
 
 Working, and in daily use on one hood — firmware 13, software 75, hardware 3.2.255.0. Some bytes of
