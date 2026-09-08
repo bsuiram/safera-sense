@@ -108,16 +108,21 @@ push data → sensor entities read from `coordinator.data`.
 - **The controls mirror the Safera app's own two columns**, decided 2026-09-08 from a screenshot of
   it. The app shows ventilation as `OFF 1 2 3 4 Auto` and light as `OFF 1 2 3 Auto`, each a single
   selector, plus a separate colour swatch. So:
-  - the **fan** is four levels via `percentage` plus `Auto` as a `preset_mode`;
-  - the **light** keeps brightness and colour, and carries the presets and `Auto` as *effects*;
-  - a **`Light mode` select** carries the same column again — `Off`, `Preset 1-3`, `Auto`.
+  - **`Fan mode`** and **`Light mode` selects** are the primary controls, one per column:
+    `Off · Preset 1..n · Auto`. Both are `SaferaModeSelect`, one class — the two columns are the
+    same mechanism underneath (a command taking `preset × 30`, a status byte echoing that encoding,
+    and a bit in `@60`), so only the constants differ.
+  - the **`fan` entity** keeps four levels via `percentage` plus `Auto` as a `preset_mode`;
+  - the **`light` entity** keeps brightness and colour, and carries the presets and `Auto` as
+    *effects*;
   - the two auto-mode **switches were removed**. Auto is a position on each selector, as in the app.
 
-  The select is not redundant with the light's effects. **Home Assistant hides a light's `effect`
-  attribute while the light is off**, and the hood's lamp is off most of the time, so light auto
-  would have been both invisible and unselectable in exactly the state you most want to check it.
-  `preset_mode` has no such rule, which is why the fan needs no equivalent. Verified on the hood:
-  with the lamp off and `@60` bit 1 set, `light.effect` read `None` while the select read `Auto`.
+  For the light the select is not optional. **Home Assistant hides a light's `effect` attribute
+  while the light is off**, and the hood's lamp is off most of the time, so light auto would have
+  been both invisible and unselectable in exactly the state you most want to check it. Verified on
+  the hood: lamp off with `@60` bit 1 set, `light.effect` read `None` while the select read `Auto`.
+  `preset_mode` has no such rule, so the fan picker is there for symmetry with the app rather than
+  from necessity.
 
   Removing the switches orphaned `switch.safera_sense_fan_auto_mode` and
   `switch.safera_sense_light_auto_mode` and their history. That was a deliberate call.
