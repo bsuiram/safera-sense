@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .const import FAN_LEVEL_STEP, LIGHT_PRESET_STEP
+
 # Shortest frame we will decode. Every offset read below is within this, so a
 # frame at least this long cannot index out of range.
 FRAME_MIN_LENGTH = 61
@@ -101,19 +103,18 @@ def parse_frame(data: bytes) -> dict[str, Any]:
     values["alarm_level"] = u(44, 1)
     values["activity"] = u(45, 1)
     values["power"] = u(46, 2)
-    # Byte 53 carries the light preset in two different encodings. The hood
-    # and its auto logic write preset * 30 (90 for preset 3, matching the
-    # fan's byte 56), while CMD_LIGHT_PRESET writes the parameter literally,
-    # so our own commands leave 1 or 2 there. Normalise both to the preset
-    # number the app shows rather than pick a divisor that is wrong half the
-    # time.
+    # Byte 53 is the light preset as preset * 30, the same encoding byte 56
+    # uses for the fan. There is no second encoding: the literal 1s and 2s
+    # recorded in older captures were CMD_LIGHT_PRESET being sent the preset
+    # index instead of index * 30, so the hood was storing our mistake. Values
+    # below 30 are therefore not a preset and decode to 0.
     light_raw = u(53, 1)
-    values["light"] = light_raw // 30 if light_raw >= 30 else light_raw
+    values["light"] = light_raw // LIGHT_PRESET_STEP
     values["light_raw"] = light_raw
     values["light_brightness"] = u(54, 1)
     values["light_color"] = u(55, 1)
-    # Whole preset numbers, matching the app's 0-4. Byte 56 is level * 30.
-    values["fan"] = u(56, 1) // 30
+    # Whole level numbers, matching the app's 0-4. Byte 56 is level * 30.
+    values["fan"] = u(56, 1) // FAN_LEVEL_STEP
     values["fan_speed"] = u(57, 1)
     values["grease_filter"] = u(59, 1)
     values["auto_flags"] = u(60, 1)

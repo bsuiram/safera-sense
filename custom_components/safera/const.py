@@ -156,8 +156,23 @@ ALARM_TRIP_LEVEL = 100
 AUTO_MASK_FAN = 0x01
 AUTO_MASK_LIGHT = 0x02
 
+# CMD_LIGHT_PRESET takes preset * 30, exactly like CMD_MOTOR_SPEED_STEP, and
+# byte 53 reports the same encoding back. Measured 2026-09-08: params 30, 60 and
+# 90 produced 56%/2790 K, 20%/2970 K and 100%/2943 K, an exact match for this
+# hood's three stored light presets.
+#
+# This was previously LIGHT_PRESET_ON = 1. Sending 1 does switch the lamp on,
+# but at a fallback rather than a stored preset, and light.py then overwrote
+# brightness and colour by hand — which masked the bug completely for weeks.
+# It is also why byte 53 appeared to have "two encodings": the literal 1s and 2s
+# were our own bad writes coming back, not something the hood does.
+LIGHT_PRESET_STEP = 30
+LIGHT_PRESET_COUNT = 3
 LIGHT_PRESET_OFF = 0
-LIGHT_PRESET_ON = 1
+LIGHT_PRESET_PARAM_MAX = LIGHT_PRESET_COUNT * LIGHT_PRESET_STEP
+# Preset applied by a bare turn-on when nothing else is remembered. The gentlest
+# of the three on this hood; preset 3 is the Active cooking one.
+LIGHT_PRESET_DEFAULT = 1
 
 # The colour channel is a warm-to-cool slider, 0-255, and the mapping to Kelvin
 # is measured rather than assumed: the app showed 2790 K, 2970 K and 2943 K for

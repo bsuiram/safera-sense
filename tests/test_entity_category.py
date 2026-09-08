@@ -87,11 +87,12 @@ def test_number_descriptions_default_to_config() -> None:
 def test_operable_entities_stay_in_controls() -> None:
     """The things you actually operate must not drift into Configuration.
 
-    The light, the fan, the two auto switches and the filter reset are the
-    device page's Controls group. If these ever pick up a category the group
-    empties out and the device looks inert.
+    The light, the fan and the filter reset are the device page's Controls
+    group. If these ever pick up a category the group empties out and the
+    device looks inert. Auto mode is no longer a switch — it is a fan preset
+    mode and a light effect, mirroring the app's single selector.
     """
-    for name in ("light.py", "fan.py", "switch.py", "button.py"):
+    for name in ("light.py", "fan.py", "button.py"):
         source = (Path(COMPONENT) / name).read_text()
         assert "EntityCategory" not in source, (
             f"{name} is an operable entity and should stay uncategorised"

@@ -105,6 +105,22 @@ push data → sensor entities read from `coordinator.data`.
   availability. `sensor.py` deliberately does **not** use it — its entities predate the base and
   switching them over risks changing unique ids or names, which would orphan history. New platforms
   should use it.
+- **The controls mirror the Safera app's own two columns**, decided 2026-09-08 from a screenshot of
+  it. The app shows ventilation as `OFF 1 2 3 4 Auto` and light as `OFF 1 2 3 Auto`, each a single
+  selector, plus a separate colour swatch. So:
+  - the **fan** is four levels via `percentage` plus `Auto` as a `preset_mode`;
+  - the **light** keeps brightness and colour, and carries the presets and `Auto` as *effects*;
+  - a **`Light mode` select** carries the same column again — `Off`, `Preset 1-3`, `Auto`.
+  - the two auto-mode **switches were removed**. Auto is a position on each selector, as in the app.
+
+  The select is not redundant with the light's effects. **Home Assistant hides a light's `effect`
+  attribute while the light is off**, and the hood's lamp is off most of the time, so light auto
+  would have been both invisible and unselectable in exactly the state you most want to check it.
+  `preset_mode` has no such rule, which is why the fan needs no equivalent. Verified on the hood:
+  with the lamp off and `@60` bit 1 set, `light.effect` read `None` while the select read `Auto`.
+
+  Removing the switches orphaned `switch.safera_sense_fan_auto_mode` and
+  `switch.safera_sense_light_auto_mode` and their history. That was a deliberate call.
 - **`EntityCategory` is the only thing that groups entities on the device page**, and the four
   groups — Controls, Sensors, Configuration, Diagnostic — are hardcoded in the frontend. There is no
   way to add a fifth or name your own; sub-devices via `via_device` or a dashboard card are the only
@@ -283,17 +299,21 @@ Everything else it lists agrees, including several of our constant bytes: `@26` 
 - Bytes 24-35 are near-constant in normal running, but **`@28` and `@33` are the alarm state
   machine** and both move on a trip — do not assume a constant byte is dead, which this whole file
   is a monument to. Byte 9 and byte 52 vary slightly and are unexplained.
-- **Byte 53 carries the light preset in two encodings.** The hood and its auto logic write
-  `preset × 30` — 90 for preset 3, matching the fan's byte 56 — while `CMD_LIGHT_PRESET` writes its
-  parameter literally, leaving 1 or 2 there after one of our own commands. No single divisor serves
-  both, so `_parse_data` normalises: divide by 30 above 30, take the value literally below it. That
-  is a normalisation, not a decode, and it is commented as such.
-- **The light's intermediate steps have never been observed from the hood's own controls** — set
-  that way, `@53` has only ever read 0 or 90. BLE presets put 1 and 2 there instead, which does not
-  fit the `/30` scaling at all; see "Controlling the hood". The fan's steps *have* now been seen:
-  during the 2026-08-31 taco session auto mode walked `@56` through 30, 60, 90 and 120, confirming
-  the `/30` level index, with `@57` reading raw speeds 23, 26, 36 and 82 respectively — markedly
-  non-linear, and all well below the 0-255 range a BLE speed command can reach.
+- **Byte 53 is the light preset as `preset × 30`, and that is the only encoding.** It was believed
+  to carry two, because `CMD_LIGHT_PRESET` was being sent the bare preset index and the hood was
+  faithfully storing our mistake. Measured 2026-09-08: params 30, 60 and 90 produced 56%/2790 K,
+  20%/2970 K and 100%/2943 K — this hood's three stored presets exactly — while 1, 2 and 3 all lit
+  the lamp at the same fallback around 56%/2790 K. The parser now divides by 30 flat; a value below
+  one step is not a preset.
+
+  **This hid for weeks because `light.py` overwrote brightness and colour by hand immediately after
+  selecting the preset.** The lamp always looked right, so nothing pointed at the preset command.
+  It also explains the old note that "the light's intermediate steps have never been observed from
+  the hood's own controls": `@53` only ever read 0 or 90 from the hood because the hood uses presets
+  properly, and the 1s and 2s in our captures were ours.
+- The fan's steps were seen during the 2026-08-31 taco session, where auto mode walked `@56` through
+  30, 60, 90 and 120 with `@57` reading raw speeds 23, 26, 36 and 82 — markedly non-linear, and all
+  well below the 0-255 range a raw speed command can reach.
 
 
 **tVOC's unit is µg/m³, not ppb.** The app displays "16 tVOC µg/m³" for the value our frames carry,
@@ -322,10 +342,11 @@ parameter; the codes live in `const.py`.
 
 | what | command | parameter | feedback |
 |---|---|---|---|
-| light on/off | `0x2005` CMD_LIGHT_PRESET | 1 on, 0 off | `@53` |
+| light preset | `0x2005` CMD_LIGHT_PRESET | **preset × 30**, 0 off | `@53`, same encoding |
 | light brightness | `0x2006` CMD_LIGHT_BRIGHTNESS | 0-255 | `@54`, exact |
 | light colour | `0x2007` CMD_LIGHT_COLOR | 0-255, warm to cool | `@55`, exact |
-| fan speed | `0x2002` CMD_MOTOR_RAW_SPEED | 0-255, 0 stops | `@57`, the real speed |
+| fan level | `0x2001` CMD_MOTOR_SPEED_STEP | **level × 30**, 0 stops, max 120 | `@56` level, `@57` speed |
+| fan speed | `0x2002` CMD_MOTOR_RAW_SPEED | 0-255, 0 stops | `@57`, but `@56` goes stale |
 | filter reset | `0x2009` CMD_FILTER_CHANGED | 0 | `@59` drops to 0 |
 | fan auto | `0x2004` CMD_MOTOR_AUTO_MODE | 1 arm, 0 disarm | `@60` bit 0 |
 | light auto | `0x2008` CMD_LIGHT_AUTO_MODE | 1 arm, 0 disarm | `@60` bit 1 |

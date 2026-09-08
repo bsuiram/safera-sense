@@ -16,6 +16,8 @@ from homeassistant.util.percentage import (
 )
 
 from .const import (
+    AUTO_MASK_FAN,
+    CMD_MOTOR_AUTO_MODE,
     CMD_MOTOR_SPEED_STEP,
     FAN_LEVEL_COUNT,
     FAN_LEVEL_PARAM_MAX,
@@ -29,6 +31,11 @@ _LOGGER = logging.getLogger(__name__)
 # Levels 1..FAN_LEVEL_COUNT, in the order Home Assistant should step through
 # them. Level 0 is "off" and is not a member.
 _LEVELS = list(range(1, FAN_LEVEL_COUNT + 1))
+
+# The app's ventilation column reads OFF, 1, 2, 3, 4, Auto — one selector, with
+# Auto as a position on it rather than a separate toggle. Home Assistant models
+# that as a preset mode alongside the percentage.
+PRESET_AUTO = "Auto"
 
 
 async def async_setup_entry(
@@ -66,8 +73,10 @@ class SaferaFan(SaferaEntity, FanEntity):
 
     _attr_name = "Fan"
     _attr_speed_count = FAN_LEVEL_COUNT
+    _attr_preset_modes = [PRESET_AUTO]
     _attr_supported_features = (
         FanEntityFeature.SET_SPEED
+        | FanEntityFeature.PRESET_MODE
         | FanEntityFeature.TURN_ON
         | FanEntityFeature.TURN_OFF
     )
@@ -83,6 +92,20 @@ class SaferaFan(SaferaEntity, FanEntity):
         if level is None:
             return None
         return min(level, FAN_LEVEL_COUNT)
+
+    @property
+    def preset_mode(self) -> str | None:
+        """Auto when the hood's automatic ventilation is armed, byte 60 bit 0."""
+        flags = self.coordinator.data.auto_flags
+        if flags is None:
+            return None
+        return PRESET_AUTO if flags & AUTO_MASK_FAN else None
+
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        """Arm the hood's automatic ventilation."""
+        if preset_mode != PRESET_AUTO:
+            raise HomeAssistantError(f"Unknown preset mode: {preset_mode}")
+        await self.coordinator.async_send_command(CMD_MOTOR_AUTO_MODE, 1)
 
     @property
     def is_on(self) -> bool | None:
@@ -143,6 +166,9 @@ class SaferaFan(SaferaEntity, FanEntity):
         Full speed is a poor default for a cooker hood — it is loud, and the
         hood's own controls start low.
         """
+        if preset_mode is not None:
+            await self.async_set_preset_mode(preset_mode)
+            return
         if percentage is None:
             percentage = ordered_list_item_to_percentage(
                 _LEVELS, _LEVELS[math.floor((FAN_LEVEL_COUNT - 1) / 2)]
