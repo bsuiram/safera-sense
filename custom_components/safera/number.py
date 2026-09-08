@@ -12,7 +12,12 @@ from homeassistant.components.number import (
     NumberEntityDescription,
     NumberMode,
 )
-from homeassistant.const import PERCENTAGE, UnitOfLength, UnitOfTemperature
+from homeassistant.const import (
+    EntityCategory,
+    PERCENTAGE,
+    UnitOfLength,
+    UnitOfTemperature,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -42,6 +47,11 @@ class SaferaNumberDescription(NumberEntityDescription):
     offset: int
     to_raw: Callable[[float], int]
     from_raw: Callable[[int], float]
+    # Everything on this platform is stored configuration rather than a control,
+    # so default the whole table to CONFIG instead of repeating it fourteen
+    # times. A description can still override it if a settings byte ever turns
+    # out to be something you operate day to day.
+    entity_category: EntityCategory | None = EntityCategory.CONFIG
 
 
 def _pct_to_raw(scale: int) -> Callable[[float], int]:
@@ -72,12 +82,16 @@ def _fan_preset(index: int, label: str) -> SaferaNumberDescription:
         native_step=1,
         native_unit_of_measurement=PERCENTAGE,
         mode=NumberMode.SLIDER,
-        entity_category=None,
         to_raw=_pct_to_raw(FAN_PRESET_MAX),
         from_raw=_raw_to_pct(FAN_PRESET_MAX),
     )
 
 
+# Every number here writes a byte into the hood's 200-byte settings block, so
+# they are device configuration rather than day-to-day controls. Categorising
+# them keeps the device page's Controls group to the five things you actually
+# operate — light, fan, the two auto switches and the filter reset — and gives
+# the settings a Configuration group of their own.
 NUMBERS: tuple[SaferaNumberDescription, ...] = (
     # How eagerly the hood ramps the fan while cooking. Stored as a plain
     # percentage with no scaling; the app calls 50 the default.
