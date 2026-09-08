@@ -31,7 +31,7 @@ cooking session is currently latched.
 | Light | on/off, brightness, colour temperature (2700–4995 K, in 9 K steps), and the presets as effects |
 | Fan | on/off and four speed levels, plus **Auto** as a preset mode. Uses the hood's own level command so its panel and automatic mode stay in step. Boost is not reachable over BLE — it is a nine-minute mode started by long-pressing the hood's plus button |
 | Reset grease filter | button |
-| 13 number entities | ventilation sensitivity, sensor height, the five Motor 1 ventilation presets, and brightness + colour for the three light presets |
+| 13 number entities | ventilation sensitivity, sensor height, the five Motor 1 ventilation presets, and brightness + colour for the three light presets (grouped as Light brightness preset 1-3 and Light color preset 1-3) |
 | Cooker width | select |
 
 The numbers and the cooker width write into the hood's own settings block, so they appear under

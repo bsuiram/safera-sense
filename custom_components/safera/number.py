@@ -130,7 +130,12 @@ NUMBERS: tuple[SaferaNumberDescription, ...] = (
     *(
         SaferaNumberDescription(
             key=f"light_preset_{n}_brightness",
-            name=f"Light preset {n} brightness",
+            # Named type-first so the three brightnesses and the three colours
+            # sort into two blocks in the device page's Configuration group,
+            # instead of interleaving as "preset 1 brightness, preset 1 colour,
+            # preset 2 brightness, ...". The keys are unchanged, so entity ids
+            # and history stay put.
+            name=f"Light brightness preset {n}",
             offset=SETTINGS_LIGHT_BRIGHTNESS + n - 1,
             native_min_value=0,
             native_max_value=100,
@@ -145,7 +150,7 @@ NUMBERS: tuple[SaferaNumberDescription, ...] = (
     *(
         SaferaNumberDescription(
             key=f"light_preset_{n}_color",
-            name=f"Light preset {n} colour",
+            name=f"Light color preset {n}",
             offset=SETTINGS_LIGHT_COLOR + n - 1,
             native_min_value=LIGHT_MIN_KELVIN,
             native_max_value=LIGHT_MAX_KELVIN,
