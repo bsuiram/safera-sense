@@ -179,13 +179,22 @@ FAN_RAW_SPEED_MAX = 255
 # it moves the motor while byte 56 sits at 0, because the hood's own controller
 # never learns about the change.
 #
-# Five levels, matching the six Motor 1 preset slots at settings @86-91 (level 0
-# plus levels 1-4 plus boost). Levels 1-4 were seen directly during the
-# 2026-08-31 session, where auto mode walked byte 56 through 30, 60, 90 and 120.
-# Boost as level 5 (byte 56 = 150) follows from the preset table but has not
-# been observed on the wire.
+# Four levels. Measured on the hood 2026-09-08 by sweeping the command: params
+# 30, 60, 90 and 120 set byte 56 to 1, 2, 3 and 4 and produced motor speeds 9,
+# 18, 39 and 55 — an exact match for this hood's stored Motor 1 presets, which
+# re-proves the preset table drives the hardware.
+#
+# **Params above 120 are silently ignored.** 150, 180 and 210 were each sent
+# with the fan sitting at level 1; it stayed at level 1 every time, with no
+# error and no change to byte 56. So boost is NOT reachable through this
+# command, even though the settings block has a sixth Motor 1 slot at @91 (100%
+# on this hood). Whatever triggers boost is something else — the hood's own
+# button, or a command not yet found. Do not raise this count back to 5 on the
+# strength of that preset slot: it was a plausible extrapolation and it was
+# wrong.
 FAN_LEVEL_STEP = 30
-FAN_LEVEL_COUNT = 5
+FAN_LEVEL_COUNT = 4
+FAN_LEVEL_PARAM_MAX = FAN_LEVEL_COUNT * FAN_LEVEL_STEP
 
 # Commands are rate limited. The hood is a stove guard on a single BLE
 # connection and a burst of writes has dropped the link before.

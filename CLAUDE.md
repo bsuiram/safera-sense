@@ -355,9 +355,29 @@ Things that shaped the implementation, all learned the hard way:
   learns the speed changed, so the panel, the `fan_level` sensor and the hood's automatic mode all
   disagree with reality for as long as HA is in control. That was the old behaviour here and it was
   written off as "not a bug"; it was a consequence of picking the wrong command, and
-  `crillebaba/safera-sense-ble` had this right first. `0x2001` is **not yet confirmed on this
-  hood** — the level table (`FAN_LEVEL_COUNT = 5`, boost at `@56` = 150) comes from the six Motor 1
-  preset slots at settings `@86-91`, and only levels 1-4 have ever been seen on the wire.
+  `crillebaba/safera-sense-ble` had this right first.
+
+  **Confirmed on the hood 2026-09-08.** Sweeping the command gave an exact result:
+
+  | param | `@56` | `@57` speed | matches preset |
+  |---|---|---|---|
+  | 30 | 1 | 9 | Motor 1 preset 1 = 9 |
+  | 60 | 2 | 18 | preset 2 = 18 |
+  | 90 | 3 | 39 | preset 3 = 39 |
+  | 120 | 4 | 55 | preset 4 = 55 |
+  | 150, 180, 210 | **unchanged** | **unchanged** | ignored |
+
+  So byte 56 now tracks Home Assistant's commands, the `fan_level` sensor is honest while HA is
+  driving, and the motor speeds are the stored preset values — the preset table drives the hardware,
+  re-proved a third way.
+
+  **There are four levels, not five, and boost is not reachable through `0x2001`.** Params above 120
+  are dropped silently: sent with the fan at level 1, it stayed at level 1 each time with no error
+  and no change to `@56`. `FAN_LEVEL_COUNT = 5` shipped in v1.1.0 on the strength of the sixth Motor
+  1 preset slot at `@91` (boost, 100% on this hood), and that extrapolation was simply wrong — the
+  slot exists, the command will not select it. The visible symptom was that asking the fan for 100%
+  did nothing at all. Whatever triggers boost is something else; do not raise the count back to 5
+  without finding it. `fan.py` now raises rather than sending a parameter the hood would drop.
 - **Above roughly 180 the motor is not audibly different**, though `@57` still reports the value.
 - **The Kelvin mapping is measured, not assumed.** The app showed 2790 K, 2970 K and 2943 K for
   stored preset bytes 10, 30 and 27 — an exact fit for **`K = 2700 + byte × 9`**. So the lamp runs
