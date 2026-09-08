@@ -33,6 +33,9 @@ cooking session is currently latched.
 | 13 number entities | ventilation sensitivity, sensor height, the five Motor 1 ventilation presets, and brightness + colour for the three light presets |
 | Cooker width | select |
 
+The numbers and the cooker width write into the hood's own settings block, so they appear under
+**Configuration** on the device page rather than mixed in with the controls.
+
 Two services, `safera.send_command` and `safera.write_setting`, expose the raw BLE command and
 settings-block channels for anyone who wants to poke at parts of the protocol that do not have an
 entity yet.

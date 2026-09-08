@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from homeassistant.components.select import SelectEntity
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -33,6 +34,8 @@ class SaferaCookerWidthSelect(SaferaEntity, SelectEntity):
     """
 
     _attr_name = "Cooker width"
+    # A stored setting in the hood's settings block, not something to operate.
+    _attr_entity_category = EntityCategory.CONFIG
     _attr_options = [f"{width}" for width in COOKER_WIDTHS]
     _attr_unit_of_measurement = None
 

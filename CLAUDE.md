@@ -100,10 +100,27 @@ push data → sensor entities read from `coordinator.data`.
   newer than `STALE_AFTER_SECONDS`, and `_set_connected()` calls `async_update_listeners()` on
   transition so entities re-render the instant a link drops. Caveat: staleness alone does not
   self-trigger a re-render — only connect/disconnect pushes do.
-- **Four platforms: `button`, `fan`, `light`, `sensor`.** The three control platforms share
-  `entity.py`'s `SaferaEntity` for device wiring and availability. `sensor.py` deliberately does
-  **not** use it — its entities predate the base and switching them over risks changing unique ids
-  or names, which would orphan history. New platforms should use it.
+- **Eight platforms: `binary_sensor`, `button`, `fan`, `light`, `number`, `select`, `sensor`,
+  `switch`.** All but `sensor.py` share `entity.py`'s `SaferaEntity` for device wiring and
+  availability. `sensor.py` deliberately does **not** use it — its entities predate the base and
+  switching them over risks changing unique ids or names, which would orphan history. New platforms
+  should use it.
+- **`EntityCategory` is the only thing that groups entities on the device page**, and the four
+  groups — Controls, Sensors, Configuration, Diagnostic — are hardcoded in the frontend. There is no
+  way to add a fifth or name your own; sub-devices via `via_device` or a dashboard card are the only
+  routes to arbitrary grouping. So:
+  - `number.py` and `select.py` are **`CONFIG`**. Everything on them writes a byte into the hood's
+    200-byte settings block, which is configuration, not something you operate. `number.py` defaults
+    the whole table on `SaferaNumberDescription` rather than repeating it fourteen times.
+  - `light`, `fan`, `switch` and `button` stay **uncategorised** so Controls holds the five things
+    you actually use.
+  - Diagnostics are set per description in `sensor.py`.
+
+  Until 2026-09-08 nothing declared `CONFIG`, so the device page showed three groups and all
+  fourteen settings entities sat in Controls next to the light and fan. `number.py` even set
+  `entity_category=None` explicitly on the fan presets. An explicit `None` silently overrides the
+  table default and is invisible — the entity still works — so `tests/test_entity_category.py`
+  guards against it.
 - **`parser.py` holds the frame decoding and imports neither Home Assistant nor bleak.**
   `coordinator._parse_data` is now just "call `parse_frame`, copy the fields onto `self.data`". That
   split is what makes the decoding testable — see "Tests" below — so keep new offsets in `parser.py`
@@ -531,7 +548,7 @@ then nothing".
 loads `parser.py` and `const.py` by file path, which works precisely because neither imports
 anything HA-shaped. `.github/workflows/tests.yaml` runs the same command on every push.
 
-47 tests covering the decoding and the discovery matchers. Several are regression guards for bugs
+53 tests covering the decoding, the discovery matchers and entity categorisation. Several are regression guards for bugs
 that actually happened here, and those are the ones worth not deleting:
 
 - signed illuminance — an unsigned read turns a dark kitchen into 2047 lux
@@ -541,6 +558,7 @@ that actually happened here, and those are the ones worth not deleting:
 - byte 53's two encodings both decoding
 - `Roroshetta` matching and `Røroshetta*` **not** matching, asserted in both directions
 - the manifest's `local_name` matchers agreeing with `ADVERTISED_NAME_PATTERNS`
+- no settings entity carrying `entity_category=None`, which drops it back into Controls
 
 The recorded frames in `tests/test_parser.py` are four real payloads — idle, cooking, pre-alarm and
 cooktop-cut. They are deliberately a handful and not a capture: the repo is public and captures stay
