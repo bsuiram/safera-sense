@@ -32,16 +32,13 @@ from .const import (
     ABCF_HANDLE,
     BABE_CHARACTERISTIC,
     BABE_HANDLE,
-    DCBA_CHARACTERISTIC,
-    DCBA_HANDLE,
-    EVENT_OK_PRESSED,
-    EVENT_RECORD_SIZE,
     BEEF_CHARACTERISTIC,
     COMMAND_MIN_INTERVAL_SECONDS,
     COMMAND_TIMEOUT_SECONDS,
-    SETTINGS_LENGTH,
     DATA_DEVICE_INFO,
     DATA_PAIRED_ONCE,
+    DCBA_CHARACTERISTIC,
+    DCBA_HANDLE,
     DEVICE_WAIT_SECONDS,
     DIS_FIRMWARE_REV,
     DIS_HARDWARE_REV,
@@ -50,8 +47,13 @@ from .const import (
     DIS_SERIAL,
     DIS_SOFTWARE_REV,
     DOMAIN,
+    EVENT_OK_PRESSED,
+    EVENT_RECORD_SIZE,
+    FAN_MANUAL_TOLERANCE,
     MAX_BACKOFF_SECONDS,
     PAIRING_WINDOW_SECONDS,
+    SETTINGS_LENGTH,
+    SETTINGS_MOTOR1_PRESETS,
     STALE_AFTER_SECONDS,
     STOP_TIMEOUT_SECONDS,
 )
@@ -181,6 +183,7 @@ class SaferaDataUpdateCoordinator(DataUpdateCoordinator[SaferaData]):
         self._stop_event = asyncio.Event()
         self._connection_task: asyncio.Task[None] | None = None
         self._connected = False
+        self.last_manual_fan_speed: int | None = None
         self._last_notification: float | None = None
         self._command_char: object | int | None = None
         self._settings_write_char: object | int | None = None
@@ -437,6 +440,34 @@ class SaferaDataUpdateCoordinator(DataUpdateCoordinator[SaferaData]):
     def events(self) -> list[tuple[int, int]]:
         """Most recent device event log, as (code, uptime) pairs."""
         return self._events
+
+    @property
+    def fan_is_manual(self) -> bool | None:
+        """Whether the motor is running at a speed that is not its level's.
+
+        ``CMD_MOTOR_RAW_SPEED`` moves the motor **without touching byte 56** —
+        it does not zero the hood's level index, it simply leaves it stale. So a
+        hood driven to 70% while byte 56 still says "level 4" looks, from that
+        byte alone, exactly like a hood sitting at level 4. Measured on the
+        hood 2026-09-08, correcting an earlier reading that had byte 56 dropping
+        to zero: it had only ever been observed at zero because the fan had been
+        switched off first.
+
+        The honest test is therefore whether byte 57 matches the duty stored for
+        byte 56's level. At a preset the two are identical, so anything outside
+        a ramp's worth of slack is a manual speed. ``None`` means the settings
+        block has not been read yet and the question cannot be answered.
+        """
+        data = self.data
+        if data.fan is None or data.fan_speed is None:
+            return None
+        settings = self.settings
+        if settings is None:
+            return None
+        offset = SETTINGS_MOTOR1_PRESETS + data.fan
+        if offset >= len(settings):
+            return None
+        return abs(data.fan_speed - settings[offset]) > FAN_MANUAL_TOLERANCE
 
     @property
     def settings(self) -> bytes | None:
@@ -815,6 +846,11 @@ class SaferaDataUpdateCoordinator(DataUpdateCoordinator[SaferaData]):
 
         for field, value in values.items():
             setattr(self.data, field, value)
+
+        # Remember the speed a raw command left the motor at, so "Manual" can
+        # be resumed from a preset.
+        if self.fan_is_manual and self.data.fan_speed:
+            self.last_manual_fan_speed = self.data.fan_speed
 
         if self._pending_ok_uptime is not None:
             pending, self._pending_ok_uptime = self._pending_ok_uptime, None

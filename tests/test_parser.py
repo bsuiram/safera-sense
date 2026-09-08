@@ -127,6 +127,59 @@ class TestFanLevel:
         assert values["fan"] == 2
         assert values["fan_speed"] == 180
 
+    def test_a_raw_speed_leaves_the_level_byte_stale(self) -> None:
+        """Byte 56 is not cleared by a raw speed command, only left behind.
+
+        Measured 2026-09-08, correcting an earlier reading: driving the motor to
+        70% while the hood sat at level 4 left byte 56 reading 4. It had only
+        ever been seen at zero because the fan had been switched off first.
+
+        So Manual cannot be detected from byte 56. The entities compare byte 57
+        against the duty stored for that level instead — see
+        ``coordinator.fan_is_manual``.
+        """
+        values = parse_frame(synthetic(b56=120, b57=179))
+        assert values["fan"] == 4, "the level byte still claims level 4"
+        assert values["fan_speed"] == 179, "while the motor runs at 70%"
+
+    def test_off_is_both_bytes_zero(self) -> None:
+        values = parse_frame(synthetic(b56=0, b57=0))
+        assert values["fan"] == 0
+        assert values["fan_speed"] == 0
+
+
+class TestFanPercentage:
+    """The slider reports real motor duty, not a position in a list.
+
+    This hood's four levels are 9%, 18%, 39% and 55% of full duty, so the old
+    behaviour of reporting level 1 as 25% was wrong by nearly a factor of three.
+    """
+
+    @staticmethod
+    def raw_to_pct(raw: int) -> int:
+        return round(raw * 100 / 255)
+
+    @staticmethod
+    def pct_to_raw(pct: int) -> int:
+        return max(0, min(255, round(pct * 255 / 100)))
+
+    @pytest.mark.parametrize("pct", [1, 10, 25, 39, 50, 55, 78, 99, 100])
+    def test_percentage_round_trips(self, pct: int) -> None:
+        assert self.raw_to_pct(self.pct_to_raw(pct)) == pct
+
+    def test_full_scale(self) -> None:
+        assert self.pct_to_raw(100) == 255
+        assert self.raw_to_pct(255) == 100
+
+    def test_the_hoods_own_levels_are_not_evenly_spaced(self) -> None:
+        """Stored preset duties on this hood, as raw bytes.
+
+        9%, 18%, 39% and 55% of 254 — nothing like the 25/50/75/100 an
+        evenly-stepped speed_count would have implied.
+        """
+        for pct, raw in ((9, 23), (18, 46), (39, 99), (55, 140)):
+            assert round(pct * 254 / 100) == raw
+
 
 class TestLightPreset:
     """Byte 53 is the preset as ``preset * 30``, and only that.

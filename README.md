@@ -29,7 +29,7 @@ cooking session is currently latched.
 | Fan mode | a select with **Off / Preset 1-4 / Auto** — the app's ventilation column |
 | Light mode | a select with **Off / Preset 1-3 / Auto** — the app's light column |
 | Light | on/off, brightness, colour temperature (2700–4995 K, in 9 K steps), and the presets as effects |
-| Fan | on/off and four speed levels, plus **Auto** as a preset mode. Uses the hood's own level command so its panel and automatic mode stay in step. Boost is not reachable over BLE — it is a nine-minute mode started by long-pressing the hood's plus button |
+| Fan | on/off, a speed slider showing the **real motor duty**, and **Auto / Preset 1-4 / Manual** preset modes. The slider reaches any speed, including the range between level 4 and boost that the hood's own controls cannot select. Boost itself is not reachable over BLE — it is a nine-minute mode started by long-pressing the hood's plus button |
 | Reset grease filter | button |
 | 13 number entities | ventilation sensitivity, sensor height, the five Motor 1 ventilation presets, and brightness + colour for the three light presets (grouped as Light brightness preset 1-3 and Light color preset 1-3) |
 | Cooker width | select |
