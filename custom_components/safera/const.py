@@ -122,7 +122,7 @@ STOP_TIMEOUT_SECONDS = 5
 CMD_MOTOR_SPEED_STEP = 0x2001  # parameter is level * 30, matching byte 56
 CMD_MOTOR_RAW_SPEED = 0x2002  # parameter 0-255, 0 stops the motor
 CMD_MOTOR_AUTO_MODE = 0x2004  # 1 enables fan auto, 0 disables
-CMD_LIGHT_PRESET = 0x2005  # 0 off, 1 on
+CMD_LIGHT_PRESET = 0x2005  # parameter is preset * 30, 0 off. NOT the bare index
 CMD_LIGHT_BRIGHTNESS = 0x2006  # parameter 0-255; 0 is a dim floor, not off
 CMD_LIGHT_COLOR = 0x2007  # parameter 0-255, warm to cool. Not in the external
 # table at all — found by reading back what the Safera app had last written.
