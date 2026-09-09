@@ -112,7 +112,12 @@ push data → sensor entities read from `coordinator.data`.
     `Off · Preset 1..n · Auto`. Both are `SaferaModeSelect`, one class — the two columns are the
     same mechanism underneath (a command taking `preset × 30`, a status byte echoing that encoding,
     and a bit in `@60`), so only the constants differ.
-  - the **`fan` entity** keeps four levels via `percentage` plus `Auto` as a `preset_mode`;
+  - the **`fan` entity** reports `percentage` as the **real motor duty from `@57`**, settable to
+    any value, and offers `Auto`, `Preset 1-4` and `Manual` as preset modes. It deliberately does
+    *not* report a position in a list of levels: this hood's four levels sat at 9/18/39/55% of duty,
+    so calling level 1 "25%" was wrong by nearly a factor of three. `Off` is absent from
+    `preset_mode` by Home Assistant convention — off is the power button — but present on the
+    select, which mirrors the app's column verbatim;
   - the **`light` entity** keeps brightness and colour, and carries the presets and `Auto` as
     *effects*;
   - the two auto-mode **switches were removed**. Auto is a position on each selector, as in the app.
@@ -388,13 +393,23 @@ Things that shaped the implementation, all learned the hard way:
   takes, and it tracked a commanded sweep (0 → 50 → 100 → 180 → 255 → 0) exactly, ramping between
   steps.
 
-  **`fan.py` drives `CMD_MOTOR_SPEED_STEP` (`0x2001`), not the raw command**, because the step
-  command's parameter is `level × 30` — the identical encoding `@56` reports back. Driving the raw
-  command instead moves the motor while `@56` sits at **0**, because the hood's own controller never
-  learns the speed changed, so the panel, the `fan_level` sensor and the hood's automatic mode all
-  disagree with reality for as long as HA is in control. That was the old behaviour here and it was
-  written off as "not a bug"; it was a consequence of picking the wrong command, and
-  `crillebaba/safera-sense-ble` had this right first.
+  **`fan.py` uses both commands, deliberately.** Preset modes go through `CMD_MOTOR_SPEED_STEP`
+  (`0x2001`), whose parameter is `level × 30` — the identical encoding `@56` reports back — so the
+  hood's own controller stays in step. The percentage slider goes through `CMD_MOTOR_RAW_SPEED`
+  (`0x2002`), which reaches any duty, including everything between level 4 and boost that the hood's
+  own controls cannot select.
+
+  **`0x2002` does not zero `@56`; it leaves it stale.** This corrects an earlier claim here and one
+  made again on 2026-09-08 before it was checked properly. `@56` had only ever been *seen* at 0
+  after a raw command because the fan had been switched off first. Driving the motor to 70% while
+  the hood sat at level 4 leaves `@56` reading **4** — so from that byte alone a manual speed is
+  indistinguishable from sitting at a preset.
+
+  Hence **`coordinator.fan_is_manual` compares `@57` against the duty stored for `@56`'s level** in
+  the settings block. At a preset the two are identical — level 4 at 60% is raw 152 and `@57` reads
+  152 — so anything outside `FAN_MANUAL_TOLERANCE` is a manual speed. That is what puts the fan's
+  `preset_mode` and the Fan mode select into **Manual**, and it is stateless, so it survives a
+  restart and notices changes made at the hood.
 
   **Confirmed on the hood 2026-09-08.** Sweeping the command gave an exact result:
 
@@ -405,6 +420,10 @@ Things that shaped the implementation, all learned the hard way:
   | 90 | 3 | 39 | preset 3 = 39 |
   | 120 | 4 | 55 | preset 4 = 55 |
   | 150, 180, 210 | **unchanged** | **unchanged** | ignored |
+
+  Those speeds are the presets *as configured that morning*. **The presets are user-editable and do
+  change** — by that afternoon the same four levels read 10, 20, 40 and 60. Never hardcode an
+  expectation about what a level's duty is; read it from the settings block.
 
   So byte 56 now tracks Home Assistant's commands, the `fan_level` sensor is honest while HA is
   driving, and the motor speeds are the stored preset values — the preset table drives the hardware,

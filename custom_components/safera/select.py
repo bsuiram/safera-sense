@@ -7,10 +7,12 @@ import logging
 from homeassistant.components.select import SelectEntity
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
     AUTO_MASK_FAN,
+    CMD_MOTOR_RAW_SPEED,
     AUTO_MASK_LIGHT,
     CMD_LIGHT_AUTO_MODE,
     CMD_LIGHT_PRESET,
@@ -30,6 +32,10 @@ _LOGGER = logging.getLogger(__name__)
 
 MODE_OFF = "Off"
 MODE_AUTO = "Auto"
+# Only the fan has this. It is not a mode you set so much as one the hood ends
+# up in: a raw speed command drives the motor to a duty that is not any level's,
+# leaving byte 56 stale. Selecting it again resumes the last such speed.
+MODE_MANUAL = "Manual"
 
 
 def mode_preset(preset: int) -> str:
@@ -139,10 +145,40 @@ class SaferaFanModeSelect(SaferaModeSelect):
     def __init__(self, coordinator: SaferaDataUpdateCoordinator) -> None:
         """Initialise the fan mode select."""
         super().__init__(coordinator, "fan_mode")
+        self._attr_options = [*self._attr_options, MODE_MANUAL]
 
     def _current_preset(self, data: SaferaData) -> int | None:
         """Byte 56, the hood's own level index."""
         return data.fan
+
+    @property
+    def current_option(self) -> str | None:
+        """As the base class, but a running motor at level 0 is Manual.
+
+        A raw speed command leaves byte 56 stale rather than clearing it, so a
+        hood driven to 70% still reports whatever level it was last set to.
+        ``coordinator.fan_is_manual`` compares the running duty against the duty
+        stored for that level, which is what actually separates the two.
+        """
+        option = super().current_option
+        if option in (None, MODE_AUTO):
+            return option
+        if self.coordinator.data.fan_speed and self.coordinator.fan_is_manual:
+            return MODE_MANUAL
+        return option
+
+    async def async_select_option(self, option: str) -> None:
+        """As the base class, plus resuming the last manual speed."""
+        if option == MODE_MANUAL:
+            speed = self.coordinator.last_manual_fan_speed
+            if not speed:
+                raise HomeAssistantError(
+                    "No manual speed to resume; set one with the fan's speed "
+                    "slider first"
+                )
+            await self.coordinator.async_send_command(CMD_MOTOR_RAW_SPEED, speed)
+            return
+        await super().async_select_option(option)
 
 
 class SaferaLightModeSelect(SaferaModeSelect):

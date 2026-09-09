@@ -182,11 +182,21 @@ LIGHT_KELVIN_PER_STEP = 9
 LIGHT_MIN_KELVIN = LIGHT_KELVIN_BASE
 LIGHT_MAX_KELVIN = LIGHT_KELVIN_BASE + 255 * LIGHT_KELVIN_PER_STEP
 
-# CMD_MOTOR_RAW_SPEED takes 0-255 and byte 57 reports the same units back.
-# Anything above roughly 180 was not audibly different. The fan entity no longer
-# uses the raw command — see FAN_LEVEL_STEP below — but it is still reachable
-# through the safera.send_command action.
+# CMD_MOTOR_RAW_SPEED takes 0-255 and byte 57 reports the same units back. This
+# is what the fan entity's percentage slider drives, so any speed is reachable —
+# including the range between level 4 (55% duty on this hood) and boost (100%),
+# which the hood's own controls cannot select at all.
+#
+# The cost is that byte 56, the hood's level index, drops to 0 whenever a raw
+# speed is set: the hood's own controller never learns about it. That is why the
+# mode pickers grow a "Manual" position rather than misreporting "Off".
 FAN_RAW_SPEED_MAX = 255
+
+# How far byte 57 may sit from its level's stored preset duty before the motor
+# counts as manually driven. Measured 2026-09-08: at a preset, byte 57 equals the
+# stored byte exactly (level 4 = 60% = raw 152, byte 57 = 152), so the only
+# slack needed is for the ramp between speeds.
+FAN_MANUAL_TOLERANCE = 3
 
 # The hood's own speed levels. ``CMD_MOTOR_SPEED_STEP`` takes the level scaled
 # by 30 — the identical encoding byte 56 reports back — so driving the fan this

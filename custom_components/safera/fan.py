@@ -3,39 +3,51 @@
 from __future__ import annotations
 
 import logging
-import math
 from typing import Any
 
 from homeassistant.components.fan import FanEntity, FanEntityFeature
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from homeassistant.util.percentage import (
-    ordered_list_item_to_percentage,
-    percentage_to_ordered_list_item,
-)
 
 from .const import (
     AUTO_MASK_FAN,
     CMD_MOTOR_AUTO_MODE,
+    CMD_MOTOR_RAW_SPEED,
     CMD_MOTOR_SPEED_STEP,
     FAN_LEVEL_COUNT,
-    FAN_LEVEL_PARAM_MAX,
     FAN_LEVEL_STEP,
+    FAN_RAW_SPEED_MAX,
 )
 from .coordinator import SaferaConfigEntry, SaferaDataUpdateCoordinator
 from .entity import SaferaEntity
 
 _LOGGER = logging.getLogger(__name__)
 
-# Levels 1..FAN_LEVEL_COUNT, in the order Home Assistant should step through
-# them. Level 0 is "off" and is not a member.
-_LEVELS = list(range(1, FAN_LEVEL_COUNT + 1))
-
-# The app's ventilation column reads OFF, 1, 2, 3, 4, Auto — one selector, with
-# Auto as a position on it rather than a separate toggle. Home Assistant models
-# that as a preset mode alongside the percentage.
 PRESET_AUTO = "Auto"
+PRESET_MANUAL = "Manual"
+
+
+def preset_name(level: int) -> str:
+    """Name of the preset mode that selects a given hood level."""
+    return f"Preset {level}"
+
+
+# Off is deliberately absent: Home Assistant's convention is that off is the
+# power button, not a preset. The Fan mode select carries an Off position for
+# anyone who wants the app's column verbatim.
+PRESET_LEVELS = [preset_name(n) for n in range(1, FAN_LEVEL_COUNT + 1)]
+PRESET_MODES = [PRESET_AUTO, *PRESET_LEVELS, PRESET_MANUAL]
+
+
+def raw_to_percentage(raw: int) -> int:
+    """Motor duty as a percentage of full scale."""
+    return round(raw * 100 / FAN_RAW_SPEED_MAX)
+
+
+def percentage_to_raw(percentage: int) -> int:
+    """Percentage back to the 0-255 the raw speed command takes."""
+    return max(0, min(FAN_RAW_SPEED_MAX, round(percentage * FAN_RAW_SPEED_MAX / 100)))
 
 
 async def async_setup_entry(
@@ -48,32 +60,31 @@ async def async_setup_entry(
 
 
 class SaferaFan(SaferaEntity, FanEntity):
-    """The hood's extraction fan, driven by the hood's own speed levels.
+    """The hood's extraction fan.
 
-    This deliberately uses ``CMD_MOTOR_SPEED_STEP`` rather than the raw
-    0-255 ``CMD_MOTOR_RAW_SPEED``. Both move the motor, but only the step
-    command keeps the hood's own controller in the loop: it takes the level
-    scaled by 30, which is the exact encoding byte 56 reports back.
+    Two commands drive this motor and they are mutually exclusive, so the entity
+    uses both and is explicit about the trade:
 
-    Driving the raw command instead moves the motor while byte 56 stays at 0,
-    because the hood never learns the speed changed — so the ``fan_level``
-    sensor, the hood's panel and its automatic mode all disagree with reality
-    for as long as Home Assistant is in control. That was the old behaviour
-    here, and the sensor reading 0 mid-run was written off as "not a bug".
+    * ``CMD_MOTOR_SPEED_STEP`` selects one of the hood's four levels. Byte 56,
+      the hood's own level index, tracks it, so the panel and the automatic mode
+      stay in step — but only four speeds exist.
+    * ``CMD_MOTOR_RAW_SPEED`` sets any duty from 0-255. Byte 57 reports it back
+      exactly, but **byte 56 is left untouched**: the hood's level index keeps
+      whatever it last said, so it goes stale rather than blank.
 
-    Byte 57, the true motor speed in raw units, is still read and still exposed
-    as its own sensor. It remains the honest answer to "how fast is it actually
-    turning", and it is used here as a fallback for on/off.
+    Preset modes go through the step command, the percentage slider through the
+    raw one. That makes any speed reachable — including everything between level
+    4 (55% duty on this hood) and boost (100%), which the hood's own controls
+    cannot select — at the cost of the hood losing track while the slider is in
+    use. Selecting a preset again puts it back.
 
-    Four levels, not five. Measured 2026-09-08: params 30/60/90/120 work and
-    produce this hood's stored preset speeds, while 150, 180 and 210 are all
-    silently ignored — the fan simply stays where it was. Boost is not reachable
-    through this command despite having a preset slot of its own.
+    ``percentage`` is byte 57, the real motor duty, not a position in a list of
+    levels. The hood's four levels are 9%, 18%, 39% and 55% here, so reporting
+    level 1 as "25%" was wrong by nearly a factor of three.
     """
 
     _attr_name = "Fan"
-    _attr_speed_count = FAN_LEVEL_COUNT
-    _attr_preset_modes = [PRESET_AUTO]
+    _attr_preset_modes = PRESET_MODES
     _attr_supported_features = (
         FanEntityFeature.SET_SPEED
         | FanEntityFeature.PRESET_MODE
@@ -87,73 +98,99 @@ class SaferaFan(SaferaEntity, FanEntity):
 
     @property
     def _level(self) -> int | None:
-        """Current speed level from byte 56, clamped to the levels we know."""
+        """The hood's own level index, byte 56. 0 while a raw speed is set."""
         level = self.coordinator.data.fan
         if level is None:
             return None
         return min(level, FAN_LEVEL_COUNT)
 
     @property
-    def preset_mode(self) -> str | None:
-        """Auto when the hood's automatic ventilation is armed, byte 60 bit 0."""
-        flags = self.coordinator.data.auto_flags
-        if flags is None:
-            return None
-        return PRESET_AUTO if flags & AUTO_MASK_FAN else None
-
-    async def async_set_preset_mode(self, preset_mode: str) -> None:
-        """Arm the hood's automatic ventilation."""
-        if preset_mode != PRESET_AUTO:
-            raise HomeAssistantError(f"Unknown preset mode: {preset_mode}")
-        await self.coordinator.async_send_command(CMD_MOTOR_AUTO_MODE, 1)
-
-    @property
     def is_on(self) -> bool | None:
-        """Whether the motor is turning.
-
-        Byte 56 is the level the hood believes it is at; byte 57 is the motor
-        actually moving. Either being nonzero means on — during a ramp, and
-        while the hood's automatic mode is driving things, they briefly
-        disagree, and reporting off while the motor spins is the worse error.
-        """
-        level = self._level
+        """Whether the motor is turning, from byte 57."""
         speed = self.coordinator.data.fan_speed
-        if level is None and speed is None:
+        if speed is None:
             return None
-        return bool(level) or bool(speed)
+        return speed > 0
 
     @property
     def percentage(self) -> int | None:
-        """Current level as a percentage of the five available levels."""
-        level = self._level
-        if level is None:
+        """Actual motor duty as a percentage, from byte 57."""
+        speed = self.coordinator.data.fan_speed
+        if speed is None:
             return None
-        if level <= 0:
-            # The hood's own controller can be running the motor at a speed it
-            # has no level for. Report the lowest level rather than 0%, which
-            # Home Assistant reads as off and would contradict is_on.
-            speed = self.coordinator.data.fan_speed
-            if speed:
-                return ordered_list_item_to_percentage(_LEVELS, _LEVELS[0])
-            return 0
-        return ordered_list_item_to_percentage(_LEVELS, level)
+        return raw_to_percentage(speed)
+
+    @property
+    def preset_mode(self) -> str | None:
+        """Auto, one of the hood's levels, or Manual for a raw speed.
+
+        Auto wins over a level: the hood can be armed and running at once, and
+        "the hood is deciding" is the more useful thing to say.
+
+        Manual cannot be read off byte 56, because a raw speed command leaves
+        that byte stale rather than clearing it — a hood at 70% still reports
+        "level 4". ``coordinator.fan_is_manual`` compares the actual duty with
+        the duty stored for that level instead, which is the only way to tell
+        the two apart.
+        """
+        data = self.coordinator.data
+        if data.auto_flags is None or data.fan_speed is None:
+            return None
+        if data.auto_flags & AUTO_MASK_FAN:
+            return PRESET_AUTO
+        if not data.fan_speed:
+            return None
+        if self.coordinator.fan_is_manual:
+            return PRESET_MANUAL
+        level = self._level
+        if level:
+            return preset_name(level)
+        # Running, not at a known level, and the settings block has not been
+        # read yet, so Manual is the only honest answer.
+        return PRESET_MANUAL
+
+    async def _async_select_level(self, level: int) -> None:
+        """Apply one of the hood's own speed levels."""
+        if not 0 <= level <= FAN_LEVEL_COUNT:
+            raise HomeAssistantError(
+                f"Fan level {level} is out of range; the hood has {FAN_LEVEL_COUNT}"
+            )
+        await self.coordinator.async_send_command(
+            CMD_MOTOR_SPEED_STEP, level * FAN_LEVEL_STEP
+        )
 
     async def async_set_percentage(self, percentage: int) -> None:
-        """Set the speed level. 0 stops the motor."""
+        """Set the motor duty directly. 0 stops it.
+
+        Byte 56 is not updated by this command, so the hood's level index goes
+        stale until a preset is selected again. That is why Manual is detected
+        by comparing the actual duty against the level's stored duty rather than
+        by reading byte 56.
+        """
         if percentage == 0:
-            level = 0
-        else:
-            level = percentage_to_ordered_list_item(_LEVELS, percentage)
-        param = level * FAN_LEVEL_STEP
-        # The hood drops an out-of-range parameter on the floor without saying
-        # so, which would leave the fan at its previous speed and the user with
-        # no indication anything failed. Refuse loudly instead.
-        if param > FAN_LEVEL_PARAM_MAX:
-            raise HomeAssistantError(
-                f"Fan level {level} is out of range; the hood accepts 0-"
-                f"{FAN_LEVEL_COUNT}"
-            )
-        await self.coordinator.async_send_command(CMD_MOTOR_SPEED_STEP, param)
+            await self._async_select_level(0)
+            return
+        await self.coordinator.async_send_command(
+            CMD_MOTOR_RAW_SPEED, percentage_to_raw(percentage)
+        )
+
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        """Arm the hood's automatic mode, pick a level, or resume manual speed."""
+        if preset_mode == PRESET_AUTO:
+            await self.coordinator.async_send_command(CMD_MOTOR_AUTO_MODE, 1)
+            return
+        if preset_mode == PRESET_MANUAL:
+            speed = self.coordinator.last_manual_fan_speed
+            if not speed:
+                raise HomeAssistantError(
+                    "No manual speed to resume; set one with the speed slider first"
+                )
+            await self.coordinator.async_send_command(CMD_MOTOR_RAW_SPEED, speed)
+            return
+        if preset_mode in PRESET_LEVELS:
+            await self._async_select_level(PRESET_LEVELS.index(preset_mode) + 1)
+            return
+        raise HomeAssistantError(f"Unknown preset mode: {preset_mode}")
 
     async def async_turn_on(
         self,
@@ -161,20 +198,23 @@ class SaferaFan(SaferaEntity, FanEntity):
         preset_mode: str | None = None,
         **kwargs: Any,
     ) -> None:
-        """Start the fan, defaulting to the middle level.
+        """Start the fan.
 
-        Full speed is a poor default for a cooker hood — it is loud, and the
-        hood's own controls start low.
+        A bare turn-on picks level 2 rather than full speed: a cooker hood at
+        100% is loud, and the hood's own controls start low.
         """
         if preset_mode is not None:
             await self.async_set_preset_mode(preset_mode)
             return
-        if percentage is None:
-            percentage = ordered_list_item_to_percentage(
-                _LEVELS, _LEVELS[math.floor((FAN_LEVEL_COUNT - 1) / 2)]
-            )
-        await self.async_set_percentage(percentage)
+        if percentage is not None:
+            await self.async_set_percentage(percentage)
+            return
+        await self._async_select_level(min(2, FAN_LEVEL_COUNT))
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Stop the fan."""
-        await self.async_set_percentage(0)
+        """Stop the fan.
+
+        Through the step command, so the hood's level index lands on 0 as well
+        rather than being left stale at whatever a raw speed left behind.
+        """
+        await self._async_select_level(0)
