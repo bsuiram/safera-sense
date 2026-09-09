@@ -4,25 +4,39 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A single custom Home Assistant integration (`custom_components/safera/`) that reads environmental
-sensors from a Safera / Røroshetta Sense kitchen hood over BLE. There is no build system, no test
-suite, no linter config, and no `requirements` in the manifest — it is plain Python deployed by
-copying `custom_components/safera/` into a Home Assistant config directory and restarting HA.
+A single custom Home Assistant integration (`custom_components/safera/`) that reads sensors from and
+controls a Safera / Røroshetta Sense kitchen hood over BLE. No build system, no linter config, and
+no `requirements` in the manifest — plain Python, installed through HACS or by copying
+`custom_components/safera/` into a Home Assistant config directory.
 
-Status: working. The integration streams all 14 sensors at ~1 Hz against a real hood. The top-level
-README still says "does not work" — it predates the fix. Note the component README also describes a
-polling design with a 60s interval and 3 retries; that is stale too, see Architecture below.
+There **is** a test suite (`pytest` from the repo root, no Home Assistant needed — see "Tests") and
+CI: `.github/workflows/` runs pytest, hassfest and the HACS action on every push, plus a release
+workflow on `v*` tags.
+
+Status: working and in daily use on one hood. **51 entities**: 28 sensors streaming at ~1 Hz, 3
+binary sensors, a light, a fan, 3 selects, 13 numbers and a button. Both READMEs referenced here
+previously were stale; the root README is now current and the component README has been deleted.
 
 ## Running / debugging
 
-There is no unit test harness and no CI. Four ways to exercise the code, cheapest first:
+Five ways to exercise the code, cheapest first:
 
+- **`pytest`** — the decoding and the discovery matchers, in well under a second, with neither Home
+  Assistant nor bleak installed. First thing to run after any change to `parser.py` or `const.py`.
+  See "Tests".
 - **Stub-import the coordinator** — no hardware, no Home Assistant. See "Verifying a change without
   hardware" below. Catches control-flow regressions in seconds; proves nothing about byte offsets.
 - **`python test.py`** — standalone bleak script, run from a machine with a BLE adapter near the
-  hood. Scans for `Safera Sense`, subscribes to `0000BEEF-…` and prints decoded frames. Reference
-  implementation of the decoding (flip `print_bit` / `print_all` in `decode_env1` to probe bytes).
-  Note it will fight the integration for the hood's single connection slot — stop one or the other.
+  hood. Scans for `Safera Sense`, subscribes to `0000BEEF-…` and prints decoded frames (flip
+  `print_bit` / `print_all` in `decode_env1` to probe bytes). Note it will fight the integration for
+  the hood's single connection slot — stop one or the other.
+
+  **It is a scratch tool, not a reference implementation, and it has drifted.** `parser.py` is
+  authoritative. `test.py` carries the same offsets for the fields it does decode, but it is missing
+  everything added since — `voc_index @14`, `accessories @25`, `battery @26`, `alarm_status @28`,
+  `sensor_errors @34-35`, `pcu_errors @40`, `activity_type @43`, pitch, roll, and the light and fan
+  detail — and its `alarm_level` comment still says "not a %", which the 2026-08-31 trip disproved.
+  The duplication is what makes this rot; importing `parser.parse_frame` would end it.
 - **Deploy to Home Assistant and read the log.** The details below are what make this bearable.
 - **Read entity history** via `/api/history/period`. For questions about *values* (did `fan` change
   when I turned the fan on?) this beats sampling the log: it survives BLE disconnects and is already
@@ -100,8 +114,9 @@ push data → sensor entities read from `coordinator.data`.
   newer than `STALE_AFTER_SECONDS`, and `_set_connected()` calls `async_update_listeners()` on
   transition so entities re-render the instant a link drops. Caveat: staleness alone does not
   self-trigger a re-render — only connect/disconnect pushes do.
-- **Eight platforms: `binary_sensor`, `button`, `fan`, `light`, `number`, `select`, `sensor`,
-  `switch`.** All but `sensor.py` share `entity.py`'s `SaferaEntity` for device wiring and
+- **Seven platforms: `binary_sensor`, `button`, `fan`, `light`, `number`, `select`, `sensor`.**
+  There was a `switch` platform for the two auto modes; it was removed in v1.2.0 when Auto became a
+  position on the fan's preset modes and the Light mode select. All but `sensor.py` share `entity.py`'s `SaferaEntity` for device wiring and
   availability. `sensor.py` deliberately does **not** use it — its entities predate the base and
   switching them over risks changing unique ids or names, which would orphan history. New platforms
   should use it.
@@ -151,8 +166,8 @@ push data → sensor entities read from `coordinator.data`.
   - `number.py` and `select.py` are **`CONFIG`**. Everything on them writes a byte into the hood's
     200-byte settings block, which is configuration, not something you operate. `number.py` defaults
     the whole table on `SaferaNumberDescription` rather than repeating it fourteen times.
-  - `light`, `fan`, `switch` and `button` stay **uncategorised** so Controls holds the five things
-    you actually use.
+  - `light`, `fan`, `button` and the two mode selects stay **uncategorised**, so Controls holds the
+    things you actually operate.
   - Diagnostics are set per description in `sensor.py`.
 
   Until 2026-09-08 nothing declared `CONFIG`, so the device page showed three groups and all
@@ -425,8 +440,8 @@ Things that shaped the implementation, all learned the hard way:
   change** — by that afternoon the same four levels read 10, 20, 40 and 60. Never hardcode an
   expectation about what a level's duty is; read it from the settings block.
 
-  So byte 56 now tracks Home Assistant's commands, the `fan_level` sensor is honest while HA is
-  driving, and the motor speeds are the stored preset values — the preset table drives the hardware,
+  So byte 56 now tracks Home Assistant's preset commands, the `fan_preset_level` sensor is honest
+  while HA is driving, and the motor speeds are the stored preset values — the preset table drives the hardware,
   re-proved a third way.
 
   **There are four levels, not five, and boost is not reachable through `0x2001`.** Params above 120
@@ -448,8 +463,9 @@ and 0 means neither. That finally explains a byte that had defeated two earlier 
 
 **Any manual light or fan command disarms the corresponding auto mode** — from Home Assistant, the
 Safera app or the hood's own controls alike. Switching the hood light on from HA therefore stops it
-auto-starting the next time someone cooks, until the auto switch is turned back on. The two switch
-entities exist to make that visible and reversible rather than a silent surprise.
+auto-starting the next time someone cooks, until Auto is selected again. The `Auto` position on the
+fan's preset modes and on both mode selects exists to make that visible and reversible rather than a
+silent surprise.
 
 **Arming light auto applies a preset immediately, and that is normal.** Enabling it has been seen
 to switch the lamp on about a second later at preset 3 — the Active cooking preset — with no command
@@ -607,7 +623,7 @@ Four bugs here cost real debugging time and are easy to reintroduce:
   guarded it with `hasattr`, so it silently did nothing and dropped links were never noticed. The
   callback must be passed to `establish_connection(...)` / `BleakClient(...)` at construction.
 - **`info` from this component is invisible at Home Assistant's default log level.** Twice now a
-  failure has hidden there: the settings read that left eleven entities unavailable with no visible
+  failure has hidden there: the settings read that left the settings-backed entities unavailable with no visible
   cause, and event-log lines that never appeared. Anything that must be noticed without someone
   having turned debug on first has to be `warning`.
 - **`write_gatt_char` by UUID string can fail while notifications on the same service work.**
@@ -626,7 +642,7 @@ then nothing".
 loads `parser.py` and `const.py` by file path, which works precisely because neither imports
 anything HA-shaped. `.github/workflows/tests.yaml` runs the same command on every push.
 
-53 tests covering the decoding, the discovery matchers and entity categorisation. Several are regression guards for bugs
+74 tests covering the decoding, the discovery matchers and entity categorisation. Several are regression guards for bugs
 that actually happened here, and those are the ones worth not deleting:
 
 - signed illuminance — an unsigned read turns a dark kitchen into 2047 lux
